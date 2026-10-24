@@ -17,6 +17,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
+import java.net.HttpURLConnection
+import java.net.URL
+import java.net.URLEncoder
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.text.SimpleDateFormat
@@ -32,7 +35,10 @@ class VideoConfig(
     val images: List<Uri>,
     val portrait: Boolean,
     val speed: Float,
-    val pitch: Float
+    val pitch: Float,
+    val useAi: Boolean,
+    val character: String,
+    val showItems: Boolean
 )
 
 private class Pcm(val rate: Int, val channels: Int, val data: ByteArray)
@@ -87,9 +93,15 @@ object VideoMaker {
             val totalFrames = (cumMs * FPS / 1000.0).roundToInt()
             val endFrames = boundariesMs.map { (it * FPS / 1000.0).roundToInt() }
 
-            // ---------- 2) Imágenes opcionales ----------
-            val bitmaps = cfg.images.mapNotNull { decodeCover(ctx, it, w, h) }
-            val renderer = SceneRenderer(w, h, bitmaps, cfg.title, scenes)
+            // ---------- 2) Imágenes: las tuyas o generadas por IA gratis ----------
+            val own = cfg.images.mapNotNull { decodeCover(ctx, it, w, h) }
+            val bitmaps: List<Bitmap> = if (own.isNotEmpty() || !cfg.useAi) own else {
+                val ai = generateAi(scenes, cfg, onProgress)
+                if (ai.isEmpty()) onProgress(0.45f, "La IA gratuita no respondió; uso fondo animado")
+                ai
+            }
+            val items = scenes.map { if (cfg.showItems) Keywords.extract(it) else emptyList() }
+            val renderer = SceneRenderer(w, h, bitmaps, cfg.title, scenes, items)
 
             // ---------- 3) Video (MediaCodec H.264) ----------
             val videoFile = File(work, "video.mp4")
@@ -102,7 +114,7 @@ object VideoMaker {
                     val local = f - start
                     renderer.draw(c, scene, local / FPS.toFloat(), min(1f, local / len.toFloat()), f / FPS.toFloat())
                 }) { f ->
-                    onProgress(0.25f + 0.55f * f / totalFrames, "Creando video… ${(100 * f / totalFrames)}%")
+                    onProgress(0.45f + 0.35f * f / totalFrames, "Creando video… ${(100 * f / totalFrames)}%")
                 }
             } finally {
                 bitmaps.forEach { it.recycle() }
@@ -196,6 +208,51 @@ object VideoMaker {
         val o2 = BitmapFactory.Options().apply { inSampleSize = s }
         ctx.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, o2) }
     } catch (e: Exception) { null }
+
+    // ------------------------------------------------------------------
+    // IA gratuita (Pollinations, sin clave) para crear la ilustración de cada escena
+    private suspend fun generateAi(
+        scenes: List<String>, cfg: VideoConfig, onProgress: (Float, String) -> Unit
+    ): List<Bitmap> = withContext(Dispatchers.IO) {
+        val seed = (System.currentTimeMillis() % 100000).toInt()
+        val iw = if (cfg.portrait) 576 else 1024
+        val ih = if (cfg.portrait) 1024 else 576
+        val style = "ilustración infantil estilo dibujo animado 3D, colorida, fondo simple, personaje centrado"
+        val res = arrayOfNulls<Bitmap>(scenes.size)
+        scenes.forEachIndexed { i, s ->
+            onProgress(0.25f + 0.20f * i / scenes.size, "Generando imagen con IA ${i + 1}/${scenes.size}…")
+            val prompt = listOf(style, cfg.character, s).filter { it.isNotBlank() }.joinToString(", ").take(450)
+            res[i] = fetchAi(prompt, iw, ih, seed)
+        }
+        val ok = res.filterNotNull()
+        if (ok.isEmpty()) return@withContext emptyList<Bitmap>()
+        var last: Bitmap = ok.first()
+        res.map { b -> if (b != null) { last = b; b } else last }
+    }
+
+    private fun fetchAi(prompt: String, w: Int, h: Int, seed: Int): Bitmap? {
+        repeat(2) {
+            try {
+                val q = URLEncoder.encode(prompt, "UTF-8").replace("+", "%20")
+                val url = URL("https://image.pollinations.ai/prompt/$q?width=$w&height=$h&model=flux&nologo=true&seed=$seed")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.connectTimeout = 20_000
+                conn.readTimeout = 90_000
+                conn.setRequestProperty("User-Agent", "YailenVideoMaker/1.0")
+                try {
+                    if (conn.responseCode == 200) {
+                        val bytes = conn.inputStream.use { it.readBytes() }
+                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bmp != null) return bmp
+                    }
+                } finally {
+                    conn.disconnect()
+                }
+            } catch (_: Exception) {
+            }
+        }
+        return null
+    }
 
     // ------------------------------------------------------------------
     private fun encodeVideo(

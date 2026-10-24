@@ -46,3 +46,8 @@ YailenVideoMaker/
 3. Cada fotograma se dibuja en un Canvas (fondo con círculos en movimiento o tus fotos con zoom/paneo, título y subtítulo con fade-in) y se codifica a H.264 con `MediaCodec`.
 4. La voz se codifica a AAC con `MediaCodec`.
 5. `MediaMuxer` une video y audio y lo guarda en Películas/YailenVideoMaker.
+
+## Novedades
+- **Movimiento natural**: las fotos/personajes "respiran", se balancean y ondulan suavemente (deformación de malla), además de zoom y paneo. El movimiento se calcula en el celular; no mueve brazos ni boca por separado.
+- **IA gratis (opcional)**: con el interruptor activado, cada frase genera su ilustración en image.pollinations.ai (sin clave, necesita internet). Escribe la descripción de tu personaje para que se parezca en todas las escenas. Si el servicio no responde, usa el fondo animado.
+- **Colores y objetos**: si la frase dice "rojo", aparece una esfera roja; "manzana roja" muestra 🍎 sobre un círculo rojo; también sol, luna, animales, frutas, vehículos, etc., con su nombre debajo. Puedes ampliar la lista en `Keywords.kt`.

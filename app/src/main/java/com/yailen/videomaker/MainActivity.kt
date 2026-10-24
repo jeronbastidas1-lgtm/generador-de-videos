@@ -45,6 +45,9 @@ fun App() {
     var speed by remember { mutableFloatStateOf(0.9f) }
     var pitch by remember { mutableFloatStateOf(1.1f) }
     var images by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var useAi by remember { mutableStateOf(false) }
+    var character by remember { mutableStateOf("") }
+    var showItems by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
     var progress by remember { mutableFloatStateOf(0f) }
     var status by remember { mutableStateOf("") }
@@ -91,6 +94,22 @@ fun App() {
         }
         if (images.isNotEmpty()) TextButton(onClick = { images = emptyList() }, enabled = !busy) { Text("Quitar imágenes") }
 
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Switch(checked = showItems, onCheckedChange = { showItems = it }, enabled = !busy)
+            Spacer(Modifier.width(8.dp))
+            Text("Mostrar colores y objetos que nombre el texto (rojo → círculo rojo, manzana → 🍎)")
+        }
+        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Switch(checked = useAi, onCheckedChange = { useAi = it }, enabled = !busy && images.isEmpty())
+            Spacer(Modifier.width(8.dp))
+            Text("Crear las ilustraciones con IA gratis (Pollinations, necesita internet). Si subes tus imágenes, se usan esas.")
+        }
+        if (useAi && images.isEmpty()) OutlinedTextField(
+            value = character, onValueChange = { character = it },
+            label = { Text("Describe a tu personaje (ej: niña de 5 años, cabello negro, vestido amarillo)") },
+            modifier = Modifier.fillMaxWidth(), enabled = !busy
+        )
+
         Button(
             enabled = !busy && text.isNotBlank(),
             modifier = Modifier.fillMaxWidth(),
@@ -98,7 +117,7 @@ fun App() {
                 busy = true; result = null; progress = 0f; status = "Iniciando…"
                 scope.launch {
                     try {
-                        result = VideoMaker.make(ctx, VideoConfig(text, title, images, portrait, speed, pitch)) { p, s ->
+                        result = VideoMaker.make(ctx, VideoConfig(text, title, images, portrait, speed, pitch, useAi, character, showItems)) { p, s ->
                             progress = p; status = s
                         }
                     } catch (e: Exception) {
